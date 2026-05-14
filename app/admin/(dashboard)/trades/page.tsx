@@ -1,260 +1,426 @@
-/* eslint-disable react-hooks/immutability */
+/* eslint-disable react-hooks/purity */
+/* eslint-disable react-hooks/set-state-in-effect */
 'use client'
 
-import Image from 'next/image'
 import { useEffect, useState } from 'react'
+import Image from 'next/image'
+import { toast } from 'sonner'
+
 import {
-  CheckCircle2,
-  Clock3,
-  Copy,
-  Download,
-  Eye,
-  XCircle,
-} from 'lucide-react'
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
-type Trade = {
-  id: string
-  card_name: string
-  card_type: string
-  amount: number
-  rate: number
-  status: string
-  code: string | null
-  image_urls: string[]
-  country: string
-  created_at: string
-  user?: {
-    id: string
-    full_name?: string
-    username?: string
-    email?: string
+import { Input } from '@/components/ui/input'
+
+import { Textarea } from '@/components/ui/textarea'
+
+import { Card, CardContent } from '@/components/ui/card'
+
+import { Button } from '@/components/ui/button'
+
+export default function AdminTradesPage() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [trades, setTrades] = useState<any[]>([])
+
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [editingTrade, setEditingTrade] = useState<any | null>(null)
+
+  const [finalAmount, setFinalAmount] = useState('')
+  const [finalRate, setFinalRate] = useState('')
+  const [adminNote, setAdminNote] = useState('')
+
+  const fetchTrades = async () => {
+    try {
+      const res = await fetch('/api/admin/trades')
+
+      const data = await res.json()
+
+      setTrades(Array.isArray(data) ? data : [])
+    } catch {
+      toast.error('Failed to fetch trades')
+    }
   }
-}
-
-export default function TradesPage() {
-  const [trades, setTrades] = useState<Trade[]>([])
-  const [preview, setPreview] = useState<string | null>(null)
 
   useEffect(() => {
     fetchTrades()
+
+    // realtime-like polling
+    const interval = setInterval(fetchTrades, 3000)
+
+    return () => clearInterval(interval)
   }, [])
-
-  const fetchTrades = async () => {
-    const res = await fetch('/api/trades')
-    const data = await res.json()
-
-    setTrades(Array.isArray(data) ? data : [])
-  }
 
   const copyCode = async (code: string) => {
     await navigator.clipboard.writeText(code)
-    alert('E-code copied')
+
+    toast.success('Code copied')
+  }
+
+  const downloadImage = async (url: string) => {
+    try {
+      const response = await fetch(url)
+
+      const blob = await response.blob()
+
+      const blobUrl = window.URL.createObjectURL(blob)
+
+      const a = document.createElement('a')
+
+      a.href = blobUrl
+      a.download = 'trade-image.jpg'
+
+      document.body.appendChild(a)
+
+      a.click()
+
+      a.remove()
+
+      window.URL.revokeObjectURL(blobUrl)
+
+      toast.success('Download started')
+    } catch {
+      toast.error('Failed to download image')
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const openEdit = (trade: any) => {
+    setEditingTrade(trade)
+
+    setFinalAmount(
+      trade.final_amount?.toString() || trade.amount?.toString() || '',
+    )
+
+    setFinalRate(trade.final_rate?.toString() || trade.rate?.toString() || '')
+
+    setAdminNote(trade.admin_note || '')
+  }
+
+  const approveTrade = async () => {
+    if (!editingTrade) return
+
+    const res = await fetch('/api/admin/trades/update', {
+      method: 'POST',
+
+      headers: {
+        'Content-Type': 'application/json',
+      },
+
+      body: JSON.stringify({
+        id: editingTrade.id,
+        status: 'approved',
+        final_amount: Number(finalAmount),
+        final_rate: Number(finalRate),
+        admin_note: adminNote,
+      }),
+    })
+
+    const data = await res.json()
+
+    if (!res.ok) {
+      toast.error(data.error || 'Failed to approve trade')
+      return
+    }
+
+    toast.success('Trade approved')
+
+    setEditingTrade(null)
+
+    fetchTrades()
+  }
+
+  const rejectTrade = async () => {
+    if (!editingTrade) return
+
+    const res = await fetch('/api/admin/trades/update', {
+      method: 'POST',
+
+      headers: {
+        'Content-Type': 'application/json',
+      },
+
+      body: JSON.stringify({
+        id: editingTrade.id,
+        status: 'rejected',
+        final_amount: Number(finalAmount),
+        final_rate: Number(finalRate),
+        admin_note: adminNote,
+      }),
+    })
+
+    const data = await res.json()
+
+    if (!res.ok) {
+      toast.error(data.error || 'Failed to reject trade')
+      return
+    }
+
+    toast.success('Trade rejected')
+
+    setEditingTrade(null)
+
+    fetchTrades()
   }
 
   return (
     <div className='min-h-screen bg-slate-100 p-6'>
-      <div className='mb-8'>
-        <h1 className='text-3xl font-bold text-slate-900'>Trade Management</h1>
+      <div className='max-w-7xl mx-auto'>
+        <div className='flex items-center justify-between mb-6'>
+          <div>
+            <h1 className='text-3xl font-bold text-slate-900'>
+              Trade Management
+            </h1>
 
-        <p className='mt-1 text-slate-500'>Manage user gift card trades</p>
-      </div>
-
-      <div className='grid gap-5'>
-        {trades.map((trade) => (
-          <div
-            key={trade.id}
-            className='rounded-3xl border border-slate-200 bg-white p-5 shadow-sm'
-          >
-            <div className='flex flex-col gap-5 lg:flex-row lg:justify-between'>
-              {/* LEFT */}
-              <div className='flex-1'>
-                <div className='flex flex-wrap items-center gap-3'>
-                  <h2 className='text-2xl font-bold text-slate-900'>
-                    {trade.card_name}
-                  </h2>
-
-                  <div
-                    className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${
-                      trade.status === 'approved'
-                        ? 'bg-green-100 text-green-700'
-                        : trade.status === 'rejected'
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-yellow-100 text-yellow-700'
-                    }`}
-                  >
-                    {trade.status}
-                  </div>
-                </div>
-
-                {/* DETAILS */}
-                <div className='mt-4 grid gap-2 text-sm text-slate-600'>
-                  <p>
-                    <span className='font-semibold text-slate-900'>
-                      Country:
-                    </span>{' '}
-                    {trade.country}
-                  </p>
-
-                  <p>
-                    <span className='font-semibold text-slate-900'>Type:</span>{' '}
-                    {trade.card_type}
-                  </p>
-
-                  <p>
-                    <span className='font-semibold text-slate-900'>
-                      Amount:
-                    </span>{' '}
-                    ${trade.amount}
-                  </p>
-
-                  <p>
-                    <span className='font-semibold text-slate-900'>Rate:</span>{' '}
-                    ₦{trade.rate}/$
-                  </p>
-
-                  <p>
-                    <span className='font-semibold text-slate-900'>Total:</span>{' '}
-                    ₦{(trade.amount * trade.rate).toLocaleString()}
-                  </p>
-                </div>
-
-                {/* USER */}
-                <div className='mt-5 rounded-2xl bg-slate-50 p-4'>
-                  <h3 className='mb-3 text-sm font-bold text-slate-900'>
-                    Uploaded By
-                  </h3>
-
-                  <div className='space-y-2 text-sm text-slate-600'>
-                    <p>
-                      <span className='font-semibold text-slate-900'>
-                        Name:
-                      </span>{' '}
-                      {trade.user?.full_name || 'N/A'}
-                    </p>
-
-                    <p>
-                      <span className='font-semibold text-slate-900'>
-                        Username:
-                      </span>{' '}
-                      {trade.user?.username || 'N/A'}
-                    </p>
-
-                    <p>
-                      <span className='font-semibold text-slate-900'>
-                        Email:
-                      </span>{' '}
-                      {trade.user?.email || 'N/A'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* ECODE */}
-                {trade.code && (
-                  <div className='mt-5'>
-                    <p className='mb-2 text-sm font-semibold text-slate-900'>
-                      E-Code
-                    </p>
-
-                    <div className='flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3'>
-                      <span className='break-all text-sm text-slate-700'>
-                        {trade.code}
-                      </span>
-
-                      <button
-                        onClick={() => copyCode(trade.code!)}
-                        className='flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-100'
-                      >
-                        <Copy size={16} />
-                        Copy
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* IMAGES */}
-                {trade.image_urls?.length > 0 && (
-                  <div className='mt-5'>
-                    <p className='mb-3 text-sm font-semibold text-slate-900'>
-                      Uploaded Images
-                    </p>
-
-                    <div className='flex flex-wrap gap-3'>
-                      {trade.image_urls.map((img, i) => (
-                        <button
-                          key={i}
-                          onClick={() => setPreview(img)}
-                          className='group relative overflow-hidden rounded-2xl'
-                        >
-                          <Image
-                            src={img}
-                            alt='trade image'
-                            width={120}
-                            height={120}
-                            className='h-[120px] w-[120px] object-cover transition group-hover:scale-105'
-                          />
-
-                          <div className='absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover:opacity-100'>
-                            <Eye className='text-white' size={22} />
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* ACTIONS */}
-              <div className='flex flex-row gap-3 lg:flex-col'>
-                <button className='flex items-center gap-2 rounded-2xl bg-green-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-green-700'>
-                  <CheckCircle2 size={18} />
-                  Approve
-                </button>
-
-                <button className='flex items-center gap-2 rounded-2xl bg-red-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-red-700'>
-                  <XCircle size={18} />
-                  Reject
-                </button>
-
-                <button className='flex items-center gap-2 rounded-2xl bg-yellow-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-yellow-600'>
-                  <Clock3 size={18} />
-                  Pending
-                </button>
-              </div>
-            </div>
+            <p className='text-slate-500 mt-1'>
+              Manage gift card trades in realtime
+            </p>
           </div>
-        ))}
-      </div>
 
-      {/* IMAGE MODAL */}
-      {preview && (
-        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6'>
-          <div className='relative max-w-5xl'>
-            <button
-              onClick={() => setPreview(null)}
-              className='absolute right-0 top-0 z-10 rounded-full bg-white px-4 py-2 text-sm font-semibold text-black'
-            >
-              Close
-            </button>
+          <div className='bg-white px-4 py-2 rounded-xl border shadow-sm'>
+            <p className='text-sm text-slate-500'>Total Trades</p>
 
-            <Image
-              src={preview}
-              alt='preview'
-              width={1200}
-              height={1200}
-              className='max-h-[85vh] rounded-3xl object-contain'
-            />
-
-            <a
-              href={preview}
-              target='_blank'
-              className='mt-4 flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-4 font-semibold text-slate-900'
-            >
-              <Download size={18} />
-              Download Image
-            </a>
+            <p className='font-bold text-lg'>{trades.length}</p>
           </div>
         </div>
-      )}
+
+        <div className='grid gap-3'>
+          {trades.map((t) => (
+            <Card
+              key={t.id}
+              className='border-0 shadow-sm rounded-2xl overflow-hidden'
+            >
+              <CardContent className='p-4'>
+                <div className='flex flex-col lg:flex-row justify-between gap-4'>
+                  {/* LEFT */}
+                  <div className='flex gap-4 flex-1'>
+                    {/* MULTIPLE IMAGES */}
+                    {t.image_urls?.length > 0 && (
+                      <div className='flex gap-2 overflow-x-auto max-w-[280px] pb-1'>
+                        {t.image_urls.map((img: string, i: number) => (
+                          <div
+                            key={i}
+                            className='relative min-w-[75px] h-[75px]'
+                          >
+                            <Image
+                              src={img}
+                              alt='trade'
+                              fill
+                              className='rounded-xl object-cover cursor-pointer border'
+                              onClick={() => setSelectedImage(img)}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* INFO */}
+                    <div className='space-y-2 flex-1'>
+                      <div>
+                        <h2 className='font-semibold text-slate-900 text-lg'>
+                          {t.card_name}
+                        </h2>
+
+                        <p className='text-sm text-slate-500'>
+                          {t.country} • {t.card_type}
+                        </p>
+                      </div>
+
+                      {/* USER */}
+                      <div className='bg-slate-50 rounded-xl p-3 text-sm'>
+                        <p className='font-medium text-slate-700'>
+                          {t.user?.full_name || 'Unknown User'}
+                        </p>
+
+                        <p className='text-slate-500'>
+                          {t.user?.email || 'No email'}
+                        </p>
+
+                        <p className='text-slate-400 text-xs mt-1 break-all'>
+                          {t.user_id}
+                        </p>
+                      </div>
+
+                      {/* TRADE VALUES */}
+                      <div className='flex flex-wrap gap-3 text-sm'>
+                        <div className='bg-slate-100 px-3 py-2 rounded-lg'>
+                          Amount: ${t.amount}
+                        </div>
+
+                        <div className='bg-slate-100 px-3 py-2 rounded-lg'>
+                          Rate: ₦{t.rate}/$
+                        </div>
+
+                        <div className='bg-slate-100 px-3 py-2 rounded-lg'>
+                          Total: ₦
+                          {Number(
+                            t.final_total ||
+                              t.expected_payout ||
+                              t.amount * t.rate,
+                          ).toLocaleString()}
+                        </div>
+                      </div>
+
+                      {/* ECODE */}
+                      {t.code && (
+                        <div className='flex items-center gap-2 flex-wrap'>
+                          <div className='bg-slate-100 px-3 py-2 rounded-lg text-sm max-w-[300px] truncate'>
+                            {t.code}
+                          </div>
+
+                          <Button
+                            variant='outline'
+                            size='sm'
+                            onClick={() => copyCode(t.code)}
+                          >
+                            Copy
+                          </Button>
+                        </div>
+                      )}
+
+                      {/* NOTE */}
+                      {t.admin_note && (
+                        <div className='bg-red-50 border border-red-100 rounded-xl p-3'>
+                          <p className='text-sm text-red-600'>{t.admin_note}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* RIGHT */}
+                  <div className='flex flex-row lg:flex-col items-start lg:items-end justify-between gap-3'>
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-medium ${
+                        t.status === 'approved'
+                          ? 'bg-green-100 text-green-700'
+                          : t.status === 'rejected'
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-yellow-100 text-yellow-700'
+                      }`}
+                    >
+                      {t.status}
+                    </span>
+
+                    <div className='flex gap-2'>
+                      <Button variant='outline' onClick={() => openEdit(t)}>
+                        Edit
+                      </Button>
+
+                      <Button
+                        className='bg-green-600 hover:bg-green-700'
+                        onClick={() => {
+                          openEdit(t)
+                        }}
+                      >
+                        Approve
+                      </Button>
+
+                      <Button
+                        variant='destructive'
+                        onClick={() => {
+                          openEdit(t)
+                        }}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+
+      {/* IMAGE PREVIEW */}
+      <Dialog
+        open={!!selectedImage}
+        onOpenChange={() => setSelectedImage(null)}
+      >
+        <DialogContent className='max-w-3xl'>
+          <DialogHeader>
+            <DialogTitle>Trade Image Preview</DialogTitle>
+          </DialogHeader>
+
+          {selectedImage && (
+            <div className='space-y-4'>
+              <div className='relative w-full h-[500px]'>
+                <Image
+                  src={selectedImage}
+                  alt='preview'
+                  fill
+                  className='object-contain rounded-xl'
+                />
+              </div>
+
+              <Button
+                className='w-full'
+                onClick={() => downloadImage(selectedImage)}
+              >
+                Download Image
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* EDIT / APPROVE / REJECT */}
+      <Dialog open={!!editingTrade} onOpenChange={() => setEditingTrade(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Trade</DialogTitle>
+          </DialogHeader>
+
+          <div className='space-y-4'>
+            <div>
+              <label className='text-sm font-medium'>Final Amount</label>
+
+              <Input
+                type='number'
+                value={finalAmount}
+                onChange={(e) => setFinalAmount(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className='text-sm font-medium'>Final Rate</label>
+
+              <Input
+                type='number'
+                value={finalRate}
+                onChange={(e) => setFinalRate(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className='text-sm font-medium'>Admin Note</label>
+
+              <Textarea
+                value={adminNote}
+                onChange={(e) => setAdminNote(e.target.value)}
+                placeholder='Optional reason or admin note'
+              />
+            </div>
+
+            <div className='grid grid-cols-2 gap-3 pt-2'>
+              <Button
+                className='bg-green-600 hover:bg-green-700'
+                onClick={approveTrade}
+              >
+                Confirm Approve
+              </Button>
+
+              <Button variant='destructive' onClick={rejectTrade}>
+                Confirm Reject
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
